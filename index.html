@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>세워도 돼?</title>
+<meta name="description" content="앱을 열면 지금 이 자리에 주정차해도 되는지, 몇 시까지인지, 근거가 무엇인지 알려주는 공공데이터 기반 판정 앱 (엘리스 AI 챌린지 PoC)">
+<meta name="theme-color" content="#1f2328">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* 레이아웃: 위는 판정 카드, 아래는 지도. 도로 노면 표시(황색 실선, 청색 표지)에서 색을 가져온다. */
+:root {
+  --bg: #eef0ee;
+  --surface: #ffffff;
+  --ink: #1f2328;
+  --muted: #5d6670;
+  --line: #d4d9d6;
+  --road-yellow: #e9b308;
+  --stop: #c8372d;
+  --caution: #b26a00;
+  --go: #23804c;
+  --sign-blue: #1f5fbf;
+  --unknown: #6b7480;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-display: "Black Han Sans", "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+  --font-num: "IBM Plex Mono", "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", monospace;
+  --radius: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181b; --surface: #1f2328; --ink: #eef0ee; --muted: #a2abb4; --line: #333a41;
+    --road-yellow: #f2c230; --stop: #ef5a4f; --caution: #f0a43a; --go: #4cc283; --sign-blue: #6b9cf0; --unknown: #8b95a1;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181b; --surface: #1f2328; --ink: #eef0ee; --muted: #a2abb4; --line: #333a41;
+  --road-yellow: #f2c230; --stop: #ef5a4f; --caution: #f0a43a; --go: #4cc283; --sign-blue: #6b9cf0; --unknown: #8b95a1;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  word-break: keep-all; overflow-wrap: break-word; font-synthesis: none;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+button { font: inherit; color: inherit; }
+.app { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 28px; display: flex; flex-direction: column; gap: 12px; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; background: var(--sign-blue); color: #fff; display: grid; place-items: center; font-family: var(--font-display); font-size: 18px; flex: none; }
+.brand h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 22px; }
+.clock { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
+
+.sources { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.chip[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.chip:focus-visible, .btn:focus-visible, .linkbtn:focus-visible { outline: 3px solid var(--road-yellow); outline-offset: 2px; }
+
+.verdict { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--line); overflow: hidden; }
+.verdict-band { height: 8px; background: repeating-linear-gradient(90deg, var(--road-yellow) 0 28px, transparent 28px 40px); }
+.verdict[data-level="stop"] .verdict-band { background: var(--stop); }
+.verdict[data-level="caution"] .verdict-band { background: repeating-linear-gradient(90deg, var(--road-yellow) 0 28px, transparent 28px 40px); }
+.verdict[data-level="go"] .verdict-band { background: var(--go); }
+.verdict[data-level="unknown"] .verdict-band { background: var(--unknown); }
+.verdict-body { padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+.place { font-size: 13px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.headline { font-family: var(--font-display); font-weight: 400; font-size: clamp(28px, 8.4vw, 38px); line-height: 1.12; margin: 0; text-wrap: balance; }
+.verdict[data-level="stop"] .headline { color: var(--stop); }
+.verdict[data-level="caution"] .headline { color: var(--caution); }
+.verdict[data-level="go"] .headline { color: var(--go); }
+.verdict[data-level="unknown"] .headline { color: var(--ink); }
+.sub { margin: 0; font-size: 16px; font-weight: 600; }
+.facts { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.facts li { display: grid; grid-template-columns: 20px 1fr; gap: 6px; font-size: 14px; }
+.facts .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; background: var(--muted); }
+.facts .dot.stop { background: var(--stop); } .facts .dot.caution { background: var(--caution); } .facts .dot.go { background: var(--go); } .facts .dot.info { background: var(--sign-blue); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.btn { border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 700; cursor: pointer; background: var(--ink); color: var(--bg); min-height: 48px; }
+.btn.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--sign-blue); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.ask { border: 1px dashed var(--caution); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ask p { margin: 0; font-size: 14px; }
+.ask .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.timer { background: var(--ink); color: var(--bg); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.timer-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.timer-label { font-size: 13px; opacity: .8; }
+.elapsed { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: clamp(40px, 13vw, 56px); font-weight: 600; line-height: 1; letter-spacing: -.01em; }
+.remain { font-size: 15px; font-weight: 600; }
+.bar { height: 8px; background: color-mix(in srgb, var(--bg) 22%, transparent); border-radius: 99px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0%; background: var(--road-yellow); transition: width .6s linear; }
+.timer[data-alert="true"] .bar > i { background: var(--stop); }
+.timer .btn { background: var(--bg); color: var(--ink); }
+.timer .btn.secondary { background: transparent; color: var(--bg); border-color: color-mix(in srgb, var(--bg) 40%, transparent); }
+
+.map-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+#map { height: 300px; width: 100%; background: var(--line); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 12px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 18px; height: 4px; border-radius: 2px; display: inline-block; }
+.leaflet-container { font-family: var(--font-body); }
+
+details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+details.panel > summary { cursor: pointer; padding: 12px 14px; font-weight: 700; list-style: none; display: flex; justify-content: space-between; gap: 8px; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary::after { content: "+"; font-family: var(--font-num); color: var(--muted); }
+details.panel[open] > summary::after { content: "−"; }
+.panel-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.src { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.src b { font-size: 14px; }
+.src .meta { color: var(--muted); font-size: 12px; }
+.quote { margin: 0; padding: 8px 10px; border-left: 3px solid var(--road-yellow); background: color-mix(in srgb, var(--road-yellow) 9%, transparent); font-size: 13px; }
+pre.json { margin: 0; overflow-x: auto; font-family: var(--font-num); font-size: 12px; padding: 10px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.tag.ai { border-color: var(--sign-blue); color: var(--sign-blue); }
+.demo-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.demo-row input[type="range"] { flex: 1 1 180px; accent-color: var(--sign-blue); }
+.demo-row output { font-family: var(--font-num); font-variant-numeric: tabular-nums; min-width: 9ch; }
+.fine { font-size: 12px; color: var(--muted); margin: 0; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 12px; font-size: 14px; max-width: min(92vw, 480px); z-index: 1000; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">P</div>
+      <h1>세워도 돼?</h1>
+    </div>
+    <div class="clock"><div id="clock-time">--:--</div><div id="clock-day">요일 확인 중</div></div>
+  </header>
+
+  <nav class="sources" aria-label="위치 고르기">
+    <button class="chip" id="src-gps" aria-pressed="false">내 위치</button>
+    <button class="chip demo-spot" data-spot="0" aria-pressed="false">시연 ① 독산로 우체국 앞</button>
+    <button class="chip demo-spot" data-spot="1" aria-pressed="false">시연 ② 가산초등학교 옆 길</button>
+    <button class="chip demo-spot" data-spot="2" aria-pressed="false">시연 ③ 금하로1길 주택가</button>
+  </nav>
+
+  <section class="verdict" id="verdict" data-level="unknown" aria-live="polite">
+    <div class="verdict-band"></div>
+    <div class="verdict-body">
+      <div class="place" id="place">위치를 확인하는 중입니다</div>
+      <h2 class="headline" id="headline">잠시만요</h2>
+      <p class="sub" id="sub">앱을 열면 지금 이 자리의 주정차 규칙을 바로 찾아 드립니다.</p>
+      <ul class="facts" id="facts"></ul>
+      <div id="ask-slot"></div>
+      <div class="actions">
+        <button class="btn" id="btn-park" disabled>여기 세웠어요</button>
+        <button class="btn secondary" id="btn-why">판정 근거 보기</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="timer" id="timer" data-alert="false" hidden aria-live="polite">
+    <div class="timer-top">
+      <span class="timer-label" id="timer-label">세운 지</span>
+      <span class="remain" id="timer-remain"></span>
+    </div>
+    <div class="elapsed" id="timer-elapsed">00:00</div>
+    <div class="bar"><i id="timer-bar"></i></div>
+    <p class="fine" id="timer-note" style="color:inherit;opacity:.85"></p>
+    <div class="actions">
+      <button class="btn" id="btn-leave">차 뺐어요</button>
+      <button class="btn secondary" id="btn-notify">알림 켜기</button>
+    </div>
+  </section>
+
+  <section class="map-wrap" aria-label="주변 지도">
+    <div id="map" role="application" aria-label="지도. 탭하면 그 지점을 판정합니다"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--stop)"></i>지금 금지 구간</span>
+      <span><i class="swatch" style="background:var(--go)"></i>지금 허용 시간인 구간</span>
+      <span><i class="swatch" style="background:var(--road-yellow);height:10px;width:10px;border-radius:50%"></i>어린이보호구역 대상 시설</span>
+    </div>
+  </section>
+
+  <details class="panel" id="why">
+    <summary>판정 근거</summary>
+    <div class="panel-body" id="why-body"><p class="fine">위치를 고르면 이 자리에 쓰인 근거가 여기에 나옵니다.</p></div>
+  </details>
+
+  <details class="panel" id="ai">
+    <summary>AI가 공지문을 규칙으로 바꾼 기록</summary>
+    <div class="panel-body" id="ai-body"></div>
+  </details>
+
+  <details class="panel" id="demo">
+    <summary>시연 도구</summary>
+    <div class="panel-body">
+      <div class="demo-row">
+        <label for="time-shift">시각 바꾸기</label>
+        <input type="range" id="time-shift" min="0" max="1439" step="5">
+        <output id="time-shift-out" for="time-shift">지금</output>
+      </div>
+      <div class="demo-row">
+        <label for="day-type">요일 종류</label>
+        <select id="day-type">
+          <option value="auto">오늘 날짜대로</option>
+          <option value="weekday">평일</option>
+          <option value="sat">토요일</option>
+          <option value="hol">일요일·공휴일</option>
+        </select>
+        <button class="btn secondary" id="time-reset" style="min-height:40px;padding:8px 12px">지금으로</button>
+      </div>
+      <p class="fine">지도를 탭하면 그 지점으로 판정합니다. 타이머 시연은 1분을 1초로 빨리 감습니다.</p>
+      <div class="demo-row"><button class="btn secondary" id="fast-timer" style="min-height:40px;padding:8px 12px">타이머 빨리 감기 켜기</button></div>
+    </div>
+  </details>
+
+  <p class="fine" id="disclaimer">판정은 공공데이터와 지자체 공지에 근거한 안내이며 법적 보증이 아닙니다. 현장의 표지와 노면 표시가 우선합니다. 이동식 단속과 현장 단속은 언제든 있을 수 있습니다.</p>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="rules.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
