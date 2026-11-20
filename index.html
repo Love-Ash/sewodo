@@ -65,8 +65,9 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .chip:focus-visible, .btn:focus-visible, .linkbtn:focus-visible { outline: 3px solid var(--road-yellow); outline-offset: 2px; }
 
 .verdict { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--line); overflow: hidden; }
-.verdict-band { height: 8px; background: repeating-linear-gradient(90deg, var(--road-yellow) 0 28px, transparent 28px 40px); }
+.verdict-band { height: 8px; background: var(--unknown); }
 .verdict[data-level="stop"] .verdict-band { background: var(--stop); }
+/* deslop-ignore: 분위기용 그라디언트가 아니라 황색 점선 노면 표시(정차 가능·주차 금지)를 그대로 옮긴 '주의' 표지다 */
 .verdict[data-level="caution"] .verdict-band { background: repeating-linear-gradient(90deg, var(--road-yellow) 0 28px, transparent 28px 40px); }
 .verdict[data-level="go"] .verdict-band { background: var(--go); }
 .verdict[data-level="unknown"] .verdict-band { background: var(--unknown); }
@@ -80,7 +81,7 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .sub { margin: 0; font-size: 16px; font-weight: 600; }
 .facts { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .facts li { display: grid; grid-template-columns: 20px 1fr; gap: 6px; font-size: 14px; }
-.facts .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; background: var(--muted); }
+.facts .dot { width: 10px; height: 10px; border-radius: 2px; margin-top: 6px; background: var(--muted); }
 .facts .dot.stop { background: var(--stop); } .facts .dot.caution { background: var(--caution); } .facts .dot.go { background: var(--go); } .facts .dot.info { background: var(--sign-blue); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .btn { border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 700; cursor: pointer; background: var(--ink); color: var(--bg); min-height: 48px; }
@@ -181,7 +182,7 @@ pre.json { margin: 0; overflow-x: auto; font-family: var(--font-num); font-size:
     <div class="legend">
       <span><i class="swatch" style="background:var(--stop)"></i>지금 금지 구간</span>
       <span><i class="swatch" style="background:var(--go)"></i>지금 허용 시간인 구간</span>
-      <span><i class="swatch" style="background:var(--road-yellow);height:10px;width:10px;border-radius:50%"></i>어린이보호구역 대상 시설</span>
+      <span><i class="swatch" style="background:var(--road-yellow);height:10px;width:10px;border-radius:2px"></i>어린이보호구역 대상 시설</span>
     </div>
   </section>
 

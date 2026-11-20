@@ -436,7 +436,8 @@
     } catch {
       toast("데이터를 불러오지 못했어요. 새로고침해 주세요.");
     }
-    const saved = loadPark();
+    let saved = loadPark();
+    if (saved && Date.now() - saved.t0 > 12 * 3600 * 1000) { savePark(null); saved = null; }
     if (saved) { state.park = saved; state.fast = !!saved.fast; $("timer").hidden = false; runTimer(); }
     const params = new URLSearchParams(location.search);
     if (params.has("demo")) { const i = Math.min(2, Math.max(0, Number(params.get("demo")) || 0)); setPoint([DEMO_SPOTS[i].lat, DEMO_SPOTS[i].lng], 8, i); }
